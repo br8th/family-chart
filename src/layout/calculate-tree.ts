@@ -190,8 +190,6 @@ export default function calculateTree(data: Data, {
             d.spouses.push(spouse)
             tree.push(spouse)
 
-            // Keep additional partners visible when this spouse was added to the
-            // tree rather than being part of the original hierarchy.
             const co_spouses = (spouse.data.rels.spouses || []).filter(co_sp_id => co_sp_id !== d.data.id)
             const outward_side = spouse.x < d.x ? -1 : 1
             co_spouses.forEach((co_sp_id, co_i) => {
@@ -211,6 +209,7 @@ export default function calculateTree(data: Data, {
               if (!spouse.spouses) spouse.spouses = []
               spouse.spouses.push(co_spouse)
               tree.push(co_spouse)
+              addCoSpouseProgeny(spouse, co_spouse)
             })
           })
         }
@@ -223,6 +222,51 @@ export default function calculateTree(data: Data, {
 
         p2.x = x(p1, p2); p1.x = x(p2, p1)
       }
+    }
+  }
+
+  function addCoSpouseProgeny(spouse:TreeDatum, co_spouse:TreeDatum) {
+    const displayed_ids = new Set(tree.map(d => d.data.id))
+    const co_spouse_children = new Set(co_spouse.data.rels.children || [])
+    const child_ids = (spouse.data.rels.children || []).filter(child_id => {
+      if (displayed_ids.has(child_id) || !co_spouse_children.has(child_id)) return false
+      const child = data_stash.find(d => d.id === child_id)
+      return !!child && child.rels.parents.includes(spouse.data.id) && child.rels.parents.includes(co_spouse.data.id)
+    })
+    if (child_ids.length === 0) return
+
+    const synthetic_root:Datum = {
+      id: `${spouse.data.id}--${co_spouse.data.id}--progeny`,
+      data: {gender: spouse.data.data.gender},
+      rels: {parents: [], spouses: [], children: child_ids},
+    }
+    const root = d3.hierarchy<Datum>(synthetic_root, progenyChildren)
+    const remaining_depth = progeny_depth === undefined ? undefined : Math.max(progeny_depth-spouse.depth, 0)
+    trimTreeToDepth(root, remaining_depth)
+    d3.tree<Datum>().nodeSize([node_separation, level_separation])(root)
+
+    const family_x = co_spouse.sx
+    if (typeof family_x !== 'number') throw new Error('co-spouse position is not a number')
+    const descendants = root.descendants().slice(1) as TreeDatum[]
+    descendants.forEach(node => {
+      node.x += family_x
+      node.y += spouse.y
+      node.depth += spouse.depth
+      if (node.parent === root) node.parent = spouse
+    })
+    if (!spouse.children) spouse.children = []
+    spouse.children.push(...descendants.filter(node => node.parent === spouse))
+    tree.push(...descendants)
+
+    function progenyChildren(datum:Datum) {
+      const children = [...(datum.rels.children || [])]
+        .map(id => data_stash.find(candidate => candidate.id === id))
+        .filter(candidate => candidate !== undefined)
+      if (sortChildrenFunction) children.sort(sortChildrenFunction)
+      sortAddNewChildren(children)
+      if (sortSpousesFunction) sortSpousesFunction(datum, data_stash)
+      sortChildrenWithSpouses(children, datum, data_stash)
+      return children
     }
   }
 
@@ -332,11 +376,13 @@ export default function calculateTree(data: Data, {
   function trimTree(root:HN, is_ancestry:boolean) {
     let max_depth = is_ancestry ? ancestry_depth : progeny_depth
     if (one_level_rels) max_depth = 1
-    if (!max_depth && max_depth !== 0) return root
-
-    trimNode(root, 0)
-
+    trimTreeToDepth(root, max_depth)
     return root
+  }
+
+  function trimTreeToDepth(root:HN, max_depth:number | undefined) {
+    if (!max_depth && max_depth !== 0) return
+    trimNode(root, 0)
 
     function trimNode(node:HN, depth:number) {
       if (depth === max_depth) {

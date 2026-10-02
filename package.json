@@ -43,6 +43,7 @@
   "scripts": {
     "build": "node build.js",
     "test": "cypress open",
+    "test:unit": "node --test test/*.test.mjs",
     "test-run": "cypress run",
     "dev": "vite",
     "docs": "typedoc",
