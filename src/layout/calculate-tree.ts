@@ -189,6 +189,29 @@ export default function calculateTree(data: Data, {
             if (!d.spouses) d.spouses = []
             d.spouses.push(spouse)
             tree.push(spouse)
+
+            // Keep additional partners visible when this spouse was added to the
+            // tree rather than being part of the original hierarchy.
+            const co_spouses = (spouse.data.rels.spouses || []).filter(co_sp_id => co_sp_id !== d.data.id)
+            const outward_side = spouse.x < d.x ? -1 : 1
+            co_spouses.forEach((co_sp_id, co_i) => {
+              const co_spouse_data = data_stash.find(d0 => d0.id === co_sp_id)
+              if (!co_spouse_data) return
+              const co_spouse:TreeDatum = {
+                data: co_spouse_data,
+                added: true,
+                depth: d.depth,
+                spouse,
+                x: spouse.x + node_separation*(co_i+1)*outward_side,
+                y: spouse.y,
+                tid: `${spouse.data.id}-co-spouse-${co_i}`,
+              }
+              co_spouse.sx = co_spouse.x - node_separation/2*outward_side
+              co_spouse.sy = co_spouse.y
+              if (!spouse.spouses) spouse.spouses = []
+              spouse.spouses.push(co_spouse)
+              tree.push(co_spouse)
+            })
           })
         }
       }

@@ -5,7 +5,10 @@ export default function htmlContSetup(cont: HTMLElement) {
   const getSvgView = () => cont.querySelector('svg .view') as HTMLElement
   const getHtmlView = () => cont.querySelector('#htmlSvg .cards_view') as HTMLElement
 
-  createSvg(cont, {onZoom: onZoomSetup(getSvgView, getHtmlView)})
+  createSvg(cont, {
+    onZoom: onZoomSetup(getSvgView, getHtmlView),
+    zoom_polite: window.matchMedia?.('(pointer: coarse)').matches ?? false
+  })
   createHtmlSvg(cont)
 
   return {
