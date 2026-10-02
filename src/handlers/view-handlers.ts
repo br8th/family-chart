@@ -76,6 +76,12 @@ export function zoomTo(svg: SVGElement, zoom_level: number) {
   manualZoom({amount: zoom_level / currentTransform.k, svg})
 }
 
+export function setZoomInteractionMode(svg: SVGElement, mode: 'direct' | 'polite') {
+  const el_listener = getZoomListener(svg)
+  const zoom = el_listener.__zoomObj
+  zoom.filter(mode === 'polite' ? zoomPoliteFilter : zoomDirectFilter)
+}
+
 function getZoomListener(svg: SVGElement) {
   const el_listener = (svg as any).__zoomObj ? svg : (svg.parentNode as ZoomEl)
   if (!(el_listener as ZoomEl).__zoomObj) throw new Error('Zoom object not found')
@@ -99,15 +105,19 @@ export function setupZoom(el: any, props: ZoomProps = {}) {
   d3.select(el).call(zoom)
   el.__zoomObj = zoom
 
-  if (props.zoom_polite) zoom.filter(zoomFilter)
+  if (props.zoom_polite) zoom.filter(zoomPoliteFilter)
 
   function zoomed(e: any) {
     d3.select(view).attr("transform", e.transform);
   }
+}
 
-  function zoomFilter(e: any) {
-    if (e.type === "wheel" && !e.ctrlKey) return false
-    else if (e.touches && e.touches.length < 2) return false
-    else return true
-  }
+function zoomDirectFilter(e: any) {
+  return (!e.ctrlKey || e.type === 'wheel') && !e.button
+}
+
+function zoomPoliteFilter(e: any) {
+  if (e.type === "wheel" && !e.ctrlKey) return false
+  if (e.touches && e.touches.length < 2) return false
+  return zoomDirectFilter(e)
 }
