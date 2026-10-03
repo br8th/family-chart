@@ -121,7 +121,26 @@ export default function calculateTree(data: Data, {
     function someSpouses(a:HN, b:HN) {return hasSpouses(a) || hasSpouses(b)}
 
     function hierarchyGetterChildren(d:Datum) {
-      const children = [...(d.rels.children || [])].map(id => data_stash.find(d => d.id === id)).filter(d => d !== undefined)
+      const child_ids = [...(d.rels.children || [])]
+      const included_ids = new Set(child_ids)
+      for (const spouse_id of d.rels.spouses || []) {
+        const spouse = data_stash.find(candidate => candidate.id === spouse_id)
+        if (!spouse) continue
+        for (const co_spouse_id of spouse.rels.spouses || []) {
+          if (co_spouse_id === d.id) continue
+          const co_spouse = data_stash.find(candidate => candidate.id === co_spouse_id)
+          if (!co_spouse) continue
+          const co_spouse_children = new Set(co_spouse.rels.children || [])
+          for (const child_id of spouse.rels.children || []) {
+            if (included_ids.has(child_id) || !co_spouse_children.has(child_id)) continue
+            const child = data_stash.find(candidate => candidate.id === child_id)
+            if (!child || !child.rels.parents.includes(spouse.id) || !child.rels.parents.includes(co_spouse.id)) continue
+            included_ids.add(child_id)
+            child_ids.push(child_id)
+          }
+        }
+      }
+      const children = child_ids.map(id => data_stash.find(d => d.id === id)).filter(d => d !== undefined)
       if (sortChildrenFunction) children.sort(sortChildrenFunction)  // first sort by custom function if provided
       sortAddNewChildren(children)  // then put new children at the end
       if (sortSpousesFunction) sortSpousesFunction(d, data_stash)
@@ -226,19 +245,33 @@ export default function calculateTree(data: Data, {
   }
 
   function addCoSpouseProgeny(spouse:TreeDatum, co_spouse:TreeDatum) {
-    const displayed_ids = new Set(tree.map(d => d.data.id))
     const co_spouse_children = new Set(co_spouse.data.rels.children || [])
     const child_ids = (spouse.data.rels.children || []).filter(child_id => {
-      if (displayed_ids.has(child_id) || !co_spouse_children.has(child_id)) return false
+      if (!co_spouse_children.has(child_id)) return false
       const child = data_stash.find(d => d.id === child_id)
       return !!child && child.rels.parents.includes(spouse.data.id) && child.rels.parents.includes(co_spouse.data.id)
     })
     if (child_ids.length === 0) return
 
+    const displayed_children = tree.filter(node => child_ids.includes(node.data.id))
+    displayed_children.forEach(child => {
+      const previous_parent = child.parent
+      child.parent = spouse
+      if (previous_parent?.children) previous_parent.children = previous_parent.children.filter(node => node !== child)
+    })
+    if (displayed_children.length > 0) {
+      if (!spouse.children) spouse.children = []
+      spouse.children.push(...displayed_children.filter(child => !spouse.children!.includes(child)))
+    }
+
+    const displayed_ids = new Set(displayed_children.map(node => node.data.id))
+    const undisplayed_child_ids = child_ids.filter(child_id => !displayed_ids.has(child_id))
+    if (undisplayed_child_ids.length === 0) return
+
     const synthetic_root:Datum = {
       id: `${spouse.data.id}--${co_spouse.data.id}--progeny`,
       data: {gender: spouse.data.data.gender},
-      rels: {parents: [], spouses: [], children: child_ids},
+      rels: {parents: [], spouses: [], children: undisplayed_child_ids},
     }
     const root = d3.hierarchy<Datum>(synthetic_root, progenyChildren)
     const remaining_depth = progeny_depth === undefined ? undefined : Math.max(progeny_depth-spouse.depth, 0)
